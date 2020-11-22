@@ -32,6 +32,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define MS5611_PROM_SIZE 				8
+#define MS5611_ADDR 						(0x77 << 1)
+#define MS5611_CMD_RESET 				0x1E
+#define MS5611_CMD_PROM_RD 			0xA0
+#define MS5611_CMD_CONV_PRES 		0x48
+#define MS5611_CMD_CONV_TEMP		0x58
+#define MS5611_CMD_ADC_RD 			0x00
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,12 +52,7 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-static const uint8_t GY63_ADDR = 0x77 << 1;
-static const uint8_t GY63_CMD_RESET = 0x1E;
-static const uint8_t GY63_CMD_PROM_RD = 0xA0;
-static const uint8_t GY63_CMD_CONV_PRES = 0x48;
-static const uint8_t GY63_CMD_CONV_TEMP = 0x58;
-static const uint8_t GY63_CMD_ADC_RD = 0x00;
+static uint16_t prom_data[8];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,12 +61,92 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
-
+static void MS5611_Init(void);
+/* private */ static void MS5611_WriteCommand(uint8_t command);
+/* private */ static uint16_t MS5611_ReadProm(uint8_t address);
+/* private */ static uint32_t MS5611_ReadADC(void);
+/* private */ static uint32_t MS5611_ReadRawTemperature(void);
+/* private */ static uint32_t MS5611_ReadRawPressure(void);
+static int32_t MS5611_ReadCompensatedTemperature(void);
+static int32_t MS5611_ReadCompensatedPressure(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void MS5611_Init(void)
+{
+	MS5611_WriteCommand(MS5611_CMD_RESET);
+	for (uint8_t i = 0; i < MS5611_PROM_SIZE; i++)
+	{
+		prom_data[i] = MS5611_ReadProm(i*2);
+	}
+}
 
+static void MS5611_WriteCommand(uint8_t command)
+{
+	HAL_I2C_Master_Transmit(&hi2c1, MS5611_ADDR, &command, 1, HAL_MAX_DELAY);
+}
+
+static uint16_t MS5611_ReadProm(uint8_t address)
+{
+	uint8_t prom_rd_addr = MS5611_CMD_PROM_RD | address;
+	uint8_t bytes[2];
+
+//	HAL_I2C_Master_Transmit(&hi2c1, MS5611_ADDR, &addr, 1, HAL_MAX_DELAY);
+	MS5611_WriteCommand(prom_rd_addr);
+	HAL_I2C_Master_Receive(&hi2c1, MS5611_ADDR, bytes, 2, HAL_MAX_DELAY);
+
+	return ((uint16_t) bytes[0] << 8) | bytes[1];
+}
+
+static uint32_t MS5611_ReadADC(void)
+{
+	uint8_t addr = MS5611_CMD_ADC_RD;
+	uint8_t adc_bytes[3];
+	
+	HAL_I2C_Master_Transmit(&hi2c1, MS5611_ADDR, &addr, 1, HAL_MAX_DELAY);
+	HAL_I2C_Master_Receive(&hi2c1, MS5611_ADDR, adc_bytes, 3, HAL_MAX_DELAY);
+
+	return ((uint32_t) adc_bytes[0] << 16) | ((uint32_t) adc_bytes[1] << 8) | ((uint32_t) adc_bytes[2]);
+}
+
+static uint32_t MS5611_ReadRawTemperature(void)
+{
+	MS5611_WriteCommand(MS5611_CMD_CONV_TEMP);
+	HAL_Delay(100); // TODO: poll the bus instead of delay
+	uint32_t d2 = MS5611_ReadADC();
+	return d2;
+}
+
+static uint32_t MS5611_ReadRawPressure(void)
+{
+	MS5611_WriteCommand(MS5611_CMD_CONV_PRES);
+	HAL_Delay(100); // TODO: poll the bus instead of delay
+	uint32_t d1 = MS5611_ReadADC();
+	return d1;
+}
+
+static int32_t MS5611_ReadCompensatedTemperature(void)
+{
+	uint32_t d2 = MS5611_ReadRawTemperature();
+	int32_t delta_t = d2 - ((uint32_t) prom_data[5] << 8);
+	int32_t temp = 2000 + ((int64_t) delta_t * prom_data[6] >> 23);
+	return temp;
+}
+
+static int32_t MS5611_ReadCompensatedPressure(void)
+{
+	uint32_t d1 = MS5611_ReadRawPressure();
+	uint32_t d2 = MS5611_ReadRawTemperature();
+
+	int32_t delta_t = d2 - ((uint32_t) prom_data[5] << 8);
+
+	int64_t offset = ((int64_t) prom_data[2] << 16) + (((int64_t) prom_data[4] * delta_t) >> 7);
+	int64_t sens = ((int64_t) prom_data[1] << 15) + (((int64_t) prom_data[3] * delta_t) >> 8);
+	int32_t pres = ((((int64_t) d1 * sens) >> 21) - offset) >> 15;
+
+	return pres;
+}
 /* USER CODE END 0 */
 
 /**
@@ -96,60 +178,22 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
+  MS5611_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint8_t buf[32];
-  uint16_t prom_data[8];
-  HAL_StatusTypeDef ret;
-
-	ret = HAL_I2C_Master_Transmit(&hi2c1, GY63_ADDR, &GY63_CMD_RESET, 1, HAL_MAX_DELAY);
-	if (ret != HAL_OK) {
-		strcpy((char*) buf, "Tx error!\r\n");
-	}
-	for (uint8_t i = 0; i < 8; i++) {
-		uint8_t prom_addr = GY63_CMD_PROM_RD | (i << 1);
-		uint8_t prom_bytes[2];
-		ret = HAL_I2C_Master_Transmit(&hi2c1, GY63_ADDR, &prom_addr, 1, HAL_MAX_DELAY);
-		ret = HAL_I2C_Master_Receive(&hi2c1, GY63_ADDR, prom_bytes, 2, HAL_MAX_DELAY);
-		prom_data[i] = ((uint16_t) prom_bytes[0] << 8) | prom_bytes[1];
-	}
   while (1)
   {
-  	uint32_t d1 = 0;
-    uint32_t d2 = 0;
-    uint8_t d1_bytes[3];
-    uint8_t d2_bytes[3];
-
-  	ret = HAL_I2C_Master_Transmit(&hi2c1, GY63_ADDR, &GY63_CMD_CONV_PRES, 1, HAL_MAX_DELAY);
-  	HAL_Delay(1000);
-  	ret = HAL_I2C_Master_Transmit(&hi2c1, GY63_ADDR, &GY63_CMD_ADC_RD, 1, HAL_MAX_DELAY);
-  	ret = HAL_I2C_Master_Receive(&hi2c1, GY63_ADDR, &d1_bytes, 3, HAL_MAX_DELAY);
-
-    ret = HAL_I2C_Master_Transmit(&hi2c1, GY63_ADDR, &GY63_CMD_CONV_TEMP, 1, HAL_MAX_DELAY);
-    HAL_Delay(1000);
-    ret = HAL_I2C_Master_Transmit(&hi2c1, GY63_ADDR, &GY63_CMD_ADC_RD, 1, HAL_MAX_DELAY);
-  	ret = HAL_I2C_Master_Receive(&hi2c1, GY63_ADDR, &d2_bytes, 3, HAL_MAX_DELAY);
-
-
-
-  	d1 = ((uint32_t) d1_bytes[0] << 16) | ((uint32_t) d1_bytes[1] << 8) | ((uint32_t) d1_bytes[2]);
-  	d2 = ((uint32_t) d2_bytes[0] << 16) | ((uint32_t) d2_bytes[1] << 8) | ((uint32_t) d2_bytes[2]);
-
-  	int32_t delta_t = d2 - ((uint32_t) prom_data[5] << 8);
-  	int32_t temp = 2000 + ((int64_t) delta_t * prom_data[6] >> 23);
-
-  	int64_t offset = ((int64_t) prom_data[2] << 16) + (((int64_t) prom_data[4] * delta_t) >> 7);
-  	int64_t sens = ((int64_t) prom_data[1] << 15) + (((int64_t) prom_data[3] * delta_t) >> 8);
-  	int32_t pres = ((((int64_t) d1 * sens) >> 21) - offset) >> 15;
+  	uint8_t buf[32];
+  	int32_t temp = MS5611_ReadCompensatedTemperature();
+  	int32_t pres = MS5611_ReadCompensatedPressure();
 
   	sprintf((char*) buf, "Temp: %.2f C, P: %.2f mbar\r\n", temp / 100.0f, pres / 100.0f);
 
   	HAL_UART_Transmit(&huart2, buf, strlen((char*) buf), HAL_MAX_DELAY);
-  	HAL_Delay(500);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
