@@ -32,13 +32,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define MS5611_PROM_SIZE				8
-#define MS5611_ADDR							(0x77 << 1)
-#define MS5611_CMD_RESET				0x1E
-#define MS5611_CMD_PROM_RD			0xA0
-#define MS5611_CMD_CONV_PRES		0x48
-#define MS5611_CMD_CONV_TEMP		0x58
-#define MS5611_CMD_ADC_RD				0x00
+#define MS5611_PROM_SIZE        8
+#define MS5611_ADDR             (0x77 << 1)
+#define MS5611_CMD_RESET        0x1E
+#define MS5611_CMD_PROM_RD      0xA0
+#define MS5611_CMD_CONV_PRES    0x48
+#define MS5611_CMD_CONV_TEMP    0x58
+#define MS5611_CMD_ADC_RD       0x00
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
