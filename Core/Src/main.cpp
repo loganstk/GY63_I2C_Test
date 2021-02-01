@@ -23,7 +23,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <string.h>
-#include "ms5611.h"
+#include <stdio.h>
+#include <MS5611.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -92,7 +93,7 @@ int main(void) {
 	MX_GPIO_Init();
 	MX_USART2_UART_Init();
 	MX_I2C1_Init();
-	MS5611_Init();
+//	MS5611_Init();
 	/* USER CODE BEGIN 2 */
 
 	/* USER CODE END 2 */
@@ -101,13 +102,22 @@ int main(void) {
 	/* USER CODE BEGIN WHILE */
 	while (1) {
 		uint8_t buf[32];
-		int32_t temp = MS5611_ReadCompensatedTemperature();
-		int32_t pres = MS5611_ReadCompensatedPressure();
+		MS5611 *ms5611_1 = new MS5611(hi2c1, MS5611_ADDR_2);
+		float temp1 = ms5611_1->GetTemperature();
+		float pres1 = ms5611_1->GetPressure();
 
-		sprintf((char*) buf, "Temp: %.2f C, P: %.2f mbar\r\n", temp / 100.0f,
-				pres / 100.0f);
+//		MS5611 *ms5611_2 = new MS5611(hi2c1, MS5611_ADDR_2);
+//		float temp2 = ms5611_2->GetTemperature();
+//		float pres2 = ms5611_2->GetPressure();
+
+		sprintf((char*) buf, "Temp1: %.2f C, P1: %.2f mbar\r\n", temp1, pres1);
 
 		HAL_UART_Transmit(&huart2, buf, strlen((char*) buf), HAL_MAX_DELAY);
+
+//		sprintf((char*) buf, "Temp2: %.2f C, P2: %.2f mbar\r\n", temp2, pres2);
+//
+//		HAL_UART_Transmit(&huart2, buf, strlen((char*) buf), HAL_MAX_DELAY);
+
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
